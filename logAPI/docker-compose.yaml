@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  log-api:
+    build:
+      context: .
+    image: logapi
+    volumes:
+      - /var/log:/var/log
+    ports:
+      - 3000:3000
