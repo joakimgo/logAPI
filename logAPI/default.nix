@@ -1,7 +1,7 @@
 { mkDerivation, aeson, base, bytestring, conduit
 , conduit-combinators, conduit-extra, directory, directory-tree
-, filepath, lens, mtl, servant, servant-server, stdenv, text, time
-, transformers, wai, warp
+, filepath, lens, lucid, mtl, servant, servant-lucid
+, servant-server, stdenv, text, time, transformers, wai, warp
 }:
 mkDerivation {
   pname = "logAPI";
@@ -11,8 +11,8 @@ mkDerivation {
   isExecutable = true;
   executableHaskellDepends = [
     aeson base bytestring conduit conduit-combinators conduit-extra
-    directory directory-tree filepath lens mtl servant servant-server
-    text time transformers wai warp
+    directory directory-tree filepath lens lucid mtl servant
+    servant-lucid servant-server text time transformers wai warp
   ];
   description = "A small web service exposing log files";
   license = stdenv.lib.licenses.bsd3;
