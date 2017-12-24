@@ -21,6 +21,7 @@ import           Network.Wai.Handler.Warp
 import           Servant
 import           System.Directory (getModificationTime)
 import           System.Posix.Files (fileSize, getFileStatus, FileStatus (..))
+import           System.Environment (getArgs)
 import           Data.Time.Clock
 import           Data.Maybe (catMaybes)
 import qualified Data.ByteString.Char8 as BS
@@ -34,56 +35,87 @@ import Data.Conduit.Combinators (sourceDirectoryDeep
                                 ,sinkFile
                                 ,sinkFileBS)
 
+data Conf = Conf { path :: FilePath
+                  ,lastdays :: Integer
+                 } deriving (Show)
+
 -- * file representation
-data LogFile = LogFile {
-                         filename :: String
+data LogFile = LogFile { filename :: String
                         ,filestatus :: FileStatus
                        }
 
 -- * api
--- todo, add tail endpoint
 type LogFileApi =
-  "file" :> QueryParam "name" Text :> Get '[PlainText] Text :<|>
+  "file" :> QueryParam "name" Text :> Get '[HTML] (Html ()) :<|>
+  "tail" :> QueryParam "lines" Int :> QueryParam "name" Text :> Get '[HTML] (Html ()) :<|>
   "list" :> Get '[HTML] (Html ())
 
 itemApi :: Proxy LogFileApi
 itemApi = Proxy
 
 -- * app
--- todo, read port from command line
 runApp :: IO ()
 runApp = do
-  let port = 3000
+  args <- getArgs
+  let -- defaultPath = "/var/log"
+      defaultPath = "/opt/app"
+      (port, logPath) = case args of
+                 (x:y:_) -> (read x :: Int, y)
+                 (x:_) -> (read x :: Int, defaultPath)
+                 _ -> (3000, defaultPath)
+      conf = Conf { path = logPath
+                   ,lastdays = 7
+                  }
       settings =
         setPort port $
-        setBeforeMainLoop (putStrLn ("listening on port " ++ show port)) $
+        setBeforeMainLoop (putStrLn ("listening on port "
+                                     ++ show port
+                                     ++ " serving files in "
+                                     ++ show logPath
+                                    )) $
         defaultSettings
-  runSettings settings =<< mkApp
+  runSettings settings =<< mkApp conf
 
-mkApp :: IO Application
-mkApp = return $ serve itemApi server
+mkApp :: Conf -> IO Application
+mkApp c = return $ serve itemApi (server c)
 
-server :: Server LogFileApi
-server = getFileContent :<|> listFiles
+server :: Conf -> Server LogFileApi
+server c = showFile
+      :<|> tailFile
+      :<|> listFiles c
 
-getFileContent :: Maybe Text -> Handler Text
-getFileContent Nothing = return ""
-getFileContent (Just fpIn) = do
-  let fp = "/var/log/" <> T.unpack (T.replace ".." "" fpIn)
+tailFile :: Maybe Int -> Maybe Text -> Handler (Html ())
+tailFile (Just len) (Just fpIn) = do
+  content <- getFileContent fpIn
+  let ts = reverse . take len . reverse $ content
+      page = filePage fpIn ts
+  return page
+tailFile _ _ = return ""
+
+showFile :: Maybe Text -> Handler (Html ())
+showFile (Just fpIn) = do
+  content <- getFileContent fpIn
+  let page = filePage fpIn content
+  return page
+showFile _ = return (return ())
+
+getFileContent :: Text -> Handler [Text]
+getFileContent fpIn = do
+  let fp = T.unpack (T.replace ".." "" fpIn)
   liftIO $ putStrLn $ "getting content of " <> fp
   content <- liftIO (runConduitRes
                      $ C.sourceFile fp
                      .| C.decodeUtf8Lenient
                      .| C.sinkList)
-  return (T.unlines content)
+  return (T.lines $ T.concat content)
 
 -- todo, add comments
-getLogFiles :: Handler [LogFile]
-getLogFiles = do
+getLogFiles :: Conf -> Handler [LogFile]
+getLogFiles conf = do
   currentTime <- liftIO getCurrentTime
-  let timeCutOff = addUTCTime (nominalDay * (-7)) currentTime
+  let timeCutOff = addUTCTime (nominalDay * (-(fromInteger (lastdays conf)))) currentTime
   fs <- runConduitRes
-     $ sourceDirectoryDeep False "/var/log"
+     $ sourceDirectoryDeep False (path conf)
     .| C.mapM (\fp -> do
                        modTime <- liftIO (getModificationTime fp)
                        status <- liftIO (getFileStatus fp)
@@ -93,9 +125,9 @@ getLogFiles = do
                        return file)
     .| C.sinkList
   return (catMaybes fs)
-  where -- | One day in 'NominalDiffTime'.
-         nominalDay :: NominalDiffTime
-         nominalDay = 86400
+
+nominalDay :: NominalDiffTime
+nominalDay = 86400
 
 
 main :: IO ()
@@ -104,22 +136,22 @@ main = do
   runApp
 
 
-listFiles :: Handler (Html ())
-listFiles = do
-  files <- getLogFiles
-  let page = listPage files
+listFiles :: Conf -> Handler (Html ())
+listFiles conf = do
+  files <- getLogFiles conf
+  let page = listPage conf files
   return page
 
 
-listPage :: [LogFile] -> Html()
-listPage files =
+listPage :: Conf -> [LogFile] -> Html()
+listPage conf files =
   doctypehtml_
     (do head_ (do meta_ [charset_ "utf-8"]
                   meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
                   title_ "log files")
         body_ (div_ [class_ "container"]
-                    (do h1_ "/var/log/"
-                        "Files changed last 7 days:"
+                    (do h1_ "Logs"
+                        ("Files changed last " <> toHtml (show (lastdays conf)) <> " days:")
                         hr_ []
                         when (0 /= 1)
                              (table_ (do
@@ -132,7 +164,7 @@ listPage files =
                                                                     size = fileSize (filestatus w)
                                                                 td_ (a_ [href_ ("file?name=" <> name)] (toHtml name))
                                                                 td_ (toHtml (show size))
-                                                                td_ (a_ [href_ ("tail?len=100&name=" <> name)] (toHtml "tail"))
+                                                                td_ (a_ [href_ ("tail?lines=100&name=" <> name)] (toHtml "tail"))
 
                                                             )) files
                                           )
@@ -140,3 +172,19 @@ listPage files =
                              )
                         hr_ []
                         )))
+
+filePage :: Text -> [Text] -> Html ()
+filePage fileName ls =
+  doctypehtml_
+    (do head_ (do meta_ [charset_ "utf-8"]
+                  meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
+                  title_ "log files")
+        body_ (div_ [class_ "container"]
+                    (do h1_ (toHtml fileName)
+                        hr_ []
+                        when (0 /= 1) (mapM_ (\x -> do
+                                                      br_ []
+                                                      toHtml ( x)) ls)
+                        hr_ []
+                        )))
+
