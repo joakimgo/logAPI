@@ -1,0 +1,20 @@
+version: '3.3'
+
+services:
+  log-api:
+    build:
+      context: .
+    volumes:
+      - /var/log:/var/log
+    command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/var/log"]
+
+  nginx:
+    image: tutum/nginx
+    ports:
+        - "443:443"
+    links:
+        - log-api
+    volumes:
+        - ./nginx/default:/etc/nginx/sites-available/default
+        - ./nginx/default:/etc/nginx/sites-enabled/default
+        - ./certs/:/etc/nginx/certs/

@@ -1,74 +1,77 @@
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 module Main where
 
-import           Control.Monad.Trans.Except
-import           Control.Monad.IO.Class
-import           Control.Monad
-import           Control.Lens
-import           Data.Aeson
+import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad (when)
+import           Data.String (fromString)
 import           Data.Monoid ((<>))
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           GHC.Generics
-import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Servant
 import           System.Directory (getModificationTime)
 import           System.Posix.Files (fileSize, getFileStatus, FileStatus (..))
 import           System.Environment (getArgs)
-import           Data.Time.Clock
+import           Data.Time.Clock (getCurrentTime, addUTCTime, NominalDiffTime(..))
 import           Data.Maybe (catMaybes)
-import qualified Data.ByteString.Char8 as BS
-import Servant.HTML.Lucid
-import Data.Conduit
-import Lucid
+import           Servant.HTML.Lucid (HTML)
+import           Lucid
+import           Data.Conduit
 import qualified Data.Conduit.Combinators as C
-import qualified Data.Conduit.Binary as CB
-import Data.Conduit.Combinators (sourceDirectoryDeep
-                                ,sourceFileBS
-                                ,sinkFile
-                                ,sinkFileBS)
+import Data.Conduit.Combinators (sourceDirectoryDeep)
 
 data Conf = Conf { path :: FilePath
                   ,lastdays :: Integer
                  } deriving (Show)
 
--- * file representation
+-- file representation
 data LogFile = LogFile { filename :: String
                         ,filestatus :: FileStatus
                        }
 
--- * api
+-- api
 type LogFileApi =
+  -- /file?name=<filename>
   "file" :> QueryParam "name" Text :> Get '[HTML] (Html ()) :<|>
+  -- /tail?lines=<lines>&name=<filename>
   "tail" :> QueryParam "lines" Int :> QueryParam "name" Text :> Get '[HTML] (Html ()) :<|>
-  "list" :> Get '[HTML] (Html ())
+   -- /list
+  "list" :> Get '[HTML] (Html ()) :<|>
+   -- /json/list
+  "json" :> "list" :> Get '[JSON] [(Text, Integer)] :<|>
+   -- /json/file?name=<filename>
+  "json" :> QueryParam "name" Text :> "file" :> Get '[JSON] Text :<|>
+   -- /json/tail?lines=<lines>&name=<filename>
+  "json" :> "tail" :> QueryParam "lines" Int :> QueryParam "name" Text :> Get '[JSON] Text
 
 itemApi :: Proxy LogFileApi
 itemApi = Proxy
 
--- * app
+-- app
 runApp :: IO ()
 runApp = do
   args <- getArgs
-  let -- defaultPath = "/var/log"
-      defaultPath = "/opt/app"
-      (port, logPath) = case args of
-                 (x:y:_) -> (read x :: Int, y)
-                 (x:_) -> (read x :: Int, defaultPath)
-                 _ -> (3000, defaultPath)
+  let defaultPath = "/var/log"
+      --defaultPath = "/opt/app"
+      defaultPort = 3000
+      defaultHost = "127.0.0.1"
+      (host, port, logPath) = case args of
+                 (x:y:z:_) -> (x, read y :: Int, z)
+                 (x:y:_) -> (x, read y :: Int, defaultPath)
+                 (x:_) -> (x, defaultPort, defaultPath)
+                 _ -> (defaultHost, defaultPort, defaultPath)
       conf = Conf { path = logPath
                    ,lastdays = 7
                   }
       settings =
         setPort port $
-        setBeforeMainLoop (putStrLn ("listening on port "
+        setHost (fromString host) $
+        setBeforeMainLoop (putStrLn ("listening on "
+                                     ++ host
+                                     ++ ":"
                                      ++ show port
                                      ++ " serving files in "
                                      ++ show logPath
@@ -80,25 +83,43 @@ mkApp :: Conf -> IO Application
 mkApp c = return $ serve itemApi (server c)
 
 server :: Conf -> Server LogFileApi
-server c = showFile
-      :<|> tailFile
-      :<|> listFiles c
+server c = showFileHTML
+      :<|> tailFileHTML
+      :<|> listFilesHTML c
+      :<|> listFilesJSON c
+      :<|> showFileJSON
+      :<|> tailFileJSON
 
-tailFile :: Maybe Int -> Maybe Text -> Handler (Html ())
-tailFile (Just len) (Just fpIn) = do
+tailFileHTML :: Maybe Int -> Maybe Text -> Handler (Html ())
+tailFileHTML (Just len) (Just fpIn) = do
   content <- getFileContent fpIn
   let ts = reverse . take len . reverse $ content
       page = filePage fpIn ts
   return page
-tailFile _ _ = return ""
+tailFileHTML _ _ = return ""
 
-showFile :: Maybe Text -> Handler (Html ())
-showFile (Just fpIn) = do
+tailFileJSON :: Maybe Int -> Maybe Text -> Handler Text
+tailFileJSON (Just len) (Just fpIn) = do
+  content <- getFileContent fpIn
+  let ts = T.concat . reverse . take len . reverse $ content
+  return ts
+tailFileJSON _ _ = return ""
+
+showFileJSON :: Maybe Text -> Handler Text
+showFileJSON (Just fpIn) = do
+  content <- getFileContent fpIn
+  return (T.concat content)
+showFileJSON _ = return ""
+
+-- creates a HTML page of file content
+showFileHTML :: Maybe Text -> Handler (Html ())
+showFileHTML (Just fpIn) = do
   content <- getFileContent fpIn
   let page = filePage fpIn content
   return page
-showFile _ = return (return ())
+showFileHTML _ = return (return ())
 
+-- reads the content of a file
 getFileContent :: Text -> Handler [Text]
 getFileContent fpIn = do
   let fp = T.unpack (T.replace ".." "" fpIn)
@@ -126,24 +147,31 @@ getLogFiles conf = do
     .| C.sinkList
   return (catMaybes fs)
 
+-- seconds in one day
 nominalDay :: NominalDiffTime
 nominalDay = 86400
 
-
+-- app entry point
 main :: IO ()
 main = do
   putStrLn "logAPI started"
   runApp
 
 
-listFiles :: Conf -> Handler (Html ())
-listFiles conf = do
+listFilesJSON :: Conf -> Handler [(Text, Integer)]
+listFilesJSON conf = do
+  files <- getLogFiles conf
+  let xs = fmap (\x -> (T.pack (filename x), toInteger (fileSize (filestatus x)))) files
+  return xs
+
+listFilesHTML :: Conf -> Handler (Html ())
+listFilesHTML conf = do
   files <- getLogFiles conf
   let page = listPage conf files
   return page
 
-
-listPage :: Conf -> [LogFile] -> Html()
+-- some HTML to show the file list
+listPage :: Conf -> [LogFile] -> Html ()
 listPage conf files =
   doctypehtml_
     (do head_ (do meta_ [charset_ "utf-8"]
@@ -173,6 +201,7 @@ listPage conf files =
                         hr_ []
                         )))
 
+-- HTML to show file content
 filePage :: Text -> [Text] -> Html ()
 filePage fileName ls =
   doctypehtml_
@@ -184,7 +213,7 @@ filePage fileName ls =
                         hr_ []
                         when (0 /= 1) (mapM_ (\x -> do
                                                       br_ []
-                                                      toHtml ( x)) ls)
+                                                      toHtml x) ls)
                         hr_ []
                         )))
 

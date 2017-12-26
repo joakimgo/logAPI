@@ -18,6 +18,5 @@ RUN nix-store --import < app.closure
 RUN rm app.closure
 
 #CMD bash
-CMD /opt/app/result/bin/logAPI
 
 

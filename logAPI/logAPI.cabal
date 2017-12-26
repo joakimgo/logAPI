@@ -58,9 +58,9 @@ executable logAPI
   
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.9 && <4.10, servant, servant-server,
-                       mtl, warp, transformers, aeson, wai, text, directory-tree,
-                       directory, time, lens, filepath, conduit, conduit-combinators,
-                       conduit-extra, bytestring, lucid, servant-lucid, unix
+                       warp, transformers, wai, text,
+                       directory, time, conduit, conduit-combinators,
+                       lucid, servant-lucid, unix
   
   -- Directories containing source files.
   hs-source-dirs:      src
