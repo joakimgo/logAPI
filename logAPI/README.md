@@ -51,10 +51,10 @@ To build application without packaging it within docker
 ```
 nix-build --attr logAPI release.nix
 ```
-To enter development environment with all required dependencies
+To enter a development environment with all the required dependencies use
 ```
 nix-shell --attr logAPI.env release.nix
 ```
-from there project can be build with standard cabal commands.
+from there the project can be build with standard cabal commands.
 
 

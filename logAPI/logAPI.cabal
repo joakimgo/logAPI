@@ -57,7 +57,7 @@ executable logAPI
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.9 && <4.10, servant, servant-server,
+  build-depends:       base, servant, servant-server,
                        warp, transformers, wai, text,
                        directory, time, conduit, conduit-combinators,
                        lucid, servant-lucid, unix

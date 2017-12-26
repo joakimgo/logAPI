@@ -16,7 +16,3 @@ WORKDIR /opt/app
 COPY --from=build /opt/appclosure .
 RUN nix-store --import < app.closure
 RUN rm app.closure
-
-#CMD bash
-
-
