@@ -23,6 +23,7 @@ import           Data.Conduit
 import qualified Data.Conduit.Combinators as C
 import           Data.Conduit.Combinators (sourceDirectoryDeep)
 
+-- configuration parameters
 data Conf = Conf { path :: FilePath
                   ,lastdays :: Integer
                  } deriving (Show)
@@ -98,7 +99,7 @@ tailFileHTML :: Maybe Int -> Maybe FileName -> Handler (Html ())
 tailFileHTML (Just len) (Just fpIn) = do
   content <- getFileContent fpIn
   -- a much more efficient way of doing this would
-  -- be to read the file backwards.
+  -- be to read the file backwards
   let ts = reverse . take len . reverse $ content
       page = filePage fpIn ts
   return page
@@ -156,7 +157,7 @@ getLogFiles conf = do
                        status <- liftIO (getFileStatus fp)
                        -- check modification time
                        let file = if modTime >= timeCutOff
-                                  then Just (LogFile (T.pack fp) status)
+                                  then Just $ LogFile (T.pack fp) status
                                   else Nothing
                        return file)
     .| C.sinkList

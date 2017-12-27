@@ -7,6 +7,7 @@ services:
     volumes:
       - /var/log:/var/log
     command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/var/log"]
+    restart: on-failure
 
   nginx:
     image: tutum/nginx
@@ -18,3 +19,4 @@ services:
         - ./nginx/default:/etc/nginx/sites-available/default
         - ./nginx/default:/etc/nginx/sites-enabled/default
         - ./certs/:/etc/nginx/certs/
+    restart: on-failure
