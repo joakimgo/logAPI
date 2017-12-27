@@ -21,14 +21,17 @@ import           Servant.HTML.Lucid (HTML)
 import           Lucid
 import           Data.Conduit
 import qualified Data.Conduit.Combinators as C
-import Data.Conduit.Combinators (sourceDirectoryDeep)
+import           Data.Conduit.Combinators (sourceDirectoryDeep)
 
 data Conf = Conf { path :: FilePath
                   ,lastdays :: Integer
                  } deriving (Show)
 
+type FileName = Text
+type FileSize = Integer
+
 -- file representation
-data LogFile = LogFile { filename :: String
+data LogFile = LogFile { filename :: FileName
                         ,filestatus :: FileStatus
                        }
 
@@ -41,7 +44,7 @@ type LogFileApi =
    -- /list
   "list" :> Get '[HTML] (Html ()) :<|>
    -- /json/list
-  "json" :> "list" :> Get '[JSON] [(Text, Integer)] :<|>
+  "json" :> "list" :> Get '[JSON] [(FileName, FileSize)] :<|>
    -- /json/file?name=<filename>
   "json" :> QueryParam "name" Text :> "file" :> Get '[JSON] Text :<|>
    -- /json/tail?lines=<lines>&name=<filename>
@@ -55,7 +58,6 @@ runApp :: IO ()
 runApp = do
   args <- getArgs
   let defaultPath = "/var/log"
-      --defaultPath = "/opt/app"
       defaultPort = 3000
       defaultHost = "127.0.0.1"
       (host, port, logPath) = case args of
@@ -82,6 +84,7 @@ runApp = do
 mkApp :: Conf -> IO Application
 mkApp c = return $ serve itemApi (server c)
 
+-- the server that serves all the routes
 server :: Conf -> Server LogFileApi
 server c = showFileHTML
       :<|> tailFileHTML
@@ -90,29 +93,34 @@ server c = showFileHTML
       :<|> showFileJSON
       :<|> tailFileJSON
 
-tailFileHTML :: Maybe Int -> Maybe Text -> Handler (Html ())
+-- returns tail file content as a HTML page
+tailFileHTML :: Maybe Int -> Maybe FileName -> Handler (Html ())
 tailFileHTML (Just len) (Just fpIn) = do
   content <- getFileContent fpIn
+  -- a much more efficient way of doing this would
+  -- be to read the file backwards.
   let ts = reverse . take len . reverse $ content
       page = filePage fpIn ts
   return page
 tailFileHTML _ _ = return ""
 
-tailFileJSON :: Maybe Int -> Maybe Text -> Handler Text
+-- returns tail file content as Text
+tailFileJSON :: Maybe Int -> Maybe FileName -> Handler Text
 tailFileJSON (Just len) (Just fpIn) = do
   content <- getFileContent fpIn
   let ts = T.concat . reverse . take len . reverse $ content
   return ts
 tailFileJSON _ _ = return ""
 
-showFileJSON :: Maybe Text -> Handler Text
+-- returns file content as Text
+showFileJSON :: Maybe FileName -> Handler Text
 showFileJSON (Just fpIn) = do
   content <- getFileContent fpIn
   return (T.concat content)
 showFileJSON _ = return ""
 
 -- creates a HTML page of file content
-showFileHTML :: Maybe Text -> Handler (Html ())
+showFileHTML :: Maybe FileName -> Handler (Html ())
 showFileHTML (Just fpIn) = do
   content <- getFileContent fpIn
   let page = filePage fpIn content
@@ -120,28 +128,35 @@ showFileHTML (Just fpIn) = do
 showFileHTML _ = return (return ())
 
 -- reads the content of a file
-getFileContent :: Text -> Handler [Text]
+getFileContent :: FileName -> Handler [Text]
 getFileContent fpIn = do
+  -- security check, remove .. from path so
+  -- we do not expose all files in the file system
   let fp = T.unpack (T.replace ".." "" fpIn)
   liftIO $ putStrLn $ "getting content of " <> fp
+  -- we could check that the requested file is within the
+  -- the give time period, but since this is an internal tool
+  -- we skip that check.
   content <- liftIO (runConduitRes
                      $ C.sourceFile fp
                      .| C.decodeUtf8Lenient
                      .| C.sinkList)
   return (T.lines $ T.concat content)
 
--- todo, add comments
+-- fetch files
 getLogFiles :: Conf -> Handler [LogFile]
 getLogFiles conf = do
   currentTime <- liftIO getCurrentTime
   let timeCutOff = addUTCTime (nominalDay * (-(fromInteger (lastdays conf)))) currentTime
+  -- fetch files recurisvely
   fs <- runConduitRes
      $ sourceDirectoryDeep False (path conf)
     .| C.mapM (\fp -> do
                        modTime <- liftIO (getModificationTime fp)
                        status <- liftIO (getFileStatus fp)
+                       -- check modification time
                        let file = if modTime >= timeCutOff
-                                  then Just (LogFile fp status)
+                                  then Just (LogFile (T.pack fp) status)
                                   else Nothing
                        return file)
     .| C.sinkList
@@ -158,19 +173,21 @@ main = do
   runApp
 
 
-listFilesJSON :: Conf -> Handler [(Text, Integer)]
+-- returns list of files in the format [(filename, file size)]
+listFilesJSON :: Conf -> Handler [(FileName, Integer)]
 listFilesJSON conf = do
   files <- getLogFiles conf
-  let xs = fmap (\x -> (T.pack (filename x), toInteger (fileSize (filestatus x)))) files
+  let xs = fmap (\x -> (filename x, toInteger (fileSize (filestatus x)))) files
   return xs
 
+-- render a pages with the files listed
 listFilesHTML :: Conf -> Handler (Html ())
 listFilesHTML conf = do
   files <- getLogFiles conf
   let page = listPage conf files
   return page
 
--- some HTML to show the file list
+-- HTML to show the file list page
 listPage :: Conf -> [LogFile] -> Html ()
 listPage conf files =
   doctypehtml_
@@ -188,7 +205,7 @@ listPage conf files =
                                              )
                                          (do mapM_ (\w -> tr_ $
                                                             (do
-                                                                let name = T.pack (filename w)
+                                                                let name = filename w
                                                                     size = fileSize (filestatus w)
                                                                 td_ (a_ [href_ ("file?name=" <> name)] (toHtml name))
                                                                 td_ (toHtml (show size))
@@ -201,8 +218,9 @@ listPage conf files =
                         hr_ []
                         )))
 
--- HTML to show file content
-filePage :: Text -> [Text] -> Html ()
+
+-- HTML to show file content page
+filePage :: FileName -> [Text] -> Html ()
 filePage fileName ls =
   doctypehtml_
     (do head_ (do meta_ [charset_ "utf-8"]
