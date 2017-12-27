@@ -5,7 +5,10 @@ services:
     build:
       context: .
     volumes:
-      - /var/log:/opt/var/log
+      - type: volume
+        source: /var/log
+        target: /opt/var/log
+        read_only: true
     command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/opt/var/log"]
     restart: on-failure
     networks:

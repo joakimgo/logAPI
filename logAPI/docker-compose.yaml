@@ -1,11 +1,14 @@
-version: '2'
+version: '3.3'
 
 services:
   log-api:
     build:
       context: .
     volumes:
-      - /var/log:/opt/var/log
+      - type: volume
+        source: /var/log
+        target: /opt/var/log
+        read_only: true
     ports:
       - 3000:3000
     command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/opt/var/log"]
