@@ -32,6 +32,7 @@ If you are on an untrusted network use the docker-compose-secure.yaml file. It d
 ```
 docker-compose -f docker-compose-secure.yaml up
 ```
+The password for the client certificate pfx file is logapi.
 
 ### Nix
 Nix can be installed with

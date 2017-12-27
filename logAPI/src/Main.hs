@@ -2,6 +2,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module Main where
 
 import           Control.Monad.IO.Class (liftIO)
@@ -22,6 +24,9 @@ import           Lucid
 import           Data.Conduit
 import qualified Data.Conduit.Combinators as C
 import           Data.Conduit.Combinators (sourceDirectoryDeep)
+import           Data.Int (Int64)
+import           GHC.Generics
+import           Data.Aeson (ToJSON)
 
 -- configuration parameters
 data Conf = Conf { path :: FilePath
@@ -33,8 +38,8 @@ type FileSize = Integer
 
 -- file representation
 data LogFile = LogFile { filename :: FileName
-                        ,filestatus :: FileStatus
-                       }
+                        ,filesize :: Int64
+                       } deriving (Show, Generic, ToJSON)
 
 -- api
 type LogFileApi =
@@ -45,7 +50,7 @@ type LogFileApi =
    -- /list
   "list" :> Get '[HTML] (Html ()) :<|>
    -- /json/list
-  "json" :> "list" :> Get '[JSON] [(FileName, FileSize)] :<|>
+  "json" :> "list" :> Get '[JSON] [LogFile] :<|>
    -- /json/file?name=<filename>
   "json" :> QueryParam "name" Text :> "file" :> Get '[JSON] Text :<|>
    -- /json/tail?lines=<lines>&name=<filename>
@@ -155,9 +160,10 @@ getLogFiles conf = do
     .| C.mapM (\fp -> do
                        modTime <- liftIO (getModificationTime fp)
                        status <- liftIO (getFileStatus fp)
+                       let fsize = fileSize status
                        -- check modification time
-                       let file = if modTime >= timeCutOff
-                                  then Just $ LogFile (T.pack fp) status
+                           file = if modTime >= timeCutOff
+                                  then Just $ LogFile (T.pack fp) (fromIntegral fsize)
                                   else Nothing
                        return file)
     .| C.sinkList
@@ -175,11 +181,8 @@ main = do
 
 
 -- returns list of files in the format [(filename, file size)]
-listFilesJSON :: Conf -> Handler [(FileName, Integer)]
-listFilesJSON conf = do
-  files <- getLogFiles conf
-  let xs = fmap (\x -> (filename x, toInteger (fileSize (filestatus x)))) files
-  return xs
+listFilesJSON :: Conf -> Handler [LogFile]
+listFilesJSON conf = getLogFiles conf
 
 -- render a pages with the files listed
 listFilesHTML :: Conf -> Handler (Html ())
@@ -207,7 +210,7 @@ listPage conf files =
                                          (do mapM_ (\w -> tr_ $
                                                             (do
                                                                 let name = filename w
-                                                                    size = fileSize (filestatus w)
+                                                                    size = filesize w
                                                                 td_ (a_ [href_ ("file?name=" <> name)] (toHtml name))
                                                                 td_ (toHtml (show size))
                                                                 td_ (a_ [href_ ("tail?lines=100&name=" <> name)] (toHtml "tail"))

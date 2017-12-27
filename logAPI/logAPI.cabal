@@ -60,7 +60,7 @@ executable logAPI
   build-depends:       base, servant, servant-server,
                        warp, transformers, wai, text,
                        directory, time, conduit, conduit-combinators,
-                       lucid, servant-lucid, unix
+                       lucid, servant-lucid, unix, aeson
   
   -- Directories containing source files.
   hs-source-dirs:      src

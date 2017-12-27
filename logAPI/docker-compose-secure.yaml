@@ -8,15 +8,21 @@ services:
       - /var/log:/var/log
     command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/var/log"]
     restart: on-failure
+    networks:
+      - lognet
 
   nginx:
     image: tutum/nginx
     ports:
         - "443:443"
-    links:
-        - log-api
     volumes:
         - ./nginx/default:/etc/nginx/sites-available/default
         - ./nginx/default:/etc/nginx/sites-enabled/default
         - ./certs/:/etc/nginx/certs/
     restart: on-failure
+    networks:
+      - lognet
+
+networks:
+  lognet:
+    driver: bridge

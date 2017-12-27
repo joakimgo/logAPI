@@ -1,6 +1,6 @@
-{ mkDerivation, base, conduit, conduit-combinators, directory
-, lucid, servant, servant-lucid, servant-server, stdenv, text, time
-, transformers, unix, wai, warp
+{ mkDerivation, aeson, base, conduit, conduit-combinators
+, directory, lucid, servant, servant-lucid, servant-server, stdenv
+, text, time, transformers, unix, wai, warp
 }:
 mkDerivation {
   pname = "logAPI";
@@ -9,7 +9,7 @@ mkDerivation {
   isLibrary = false;
   isExecutable = true;
   executableHaskellDepends = [
-    base conduit conduit-combinators directory lucid servant
+    aeson base conduit conduit-combinators directory lucid servant
     servant-lucid servant-server text time transformers unix wai warp
   ];
   description = "A small web service exposing log files";
