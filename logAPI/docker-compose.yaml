@@ -5,8 +5,8 @@ services:
     build:
       context: .
     volumes:
-      - /var/log:/var/log
+      - /var/log:/opt/var/log
     ports:
       - 3000:3000
-    command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/var/log"]
+    command: ["/opt/app/result/bin/logAPI", "0.0.0.0", "3000", "/opt/var/log"]
     restart: on-failure
